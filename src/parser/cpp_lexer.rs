@@ -2,6 +2,7 @@ use std::iter::Peekable;
 use std::str::Chars;
 use std::fmt;
 use std::error::Error;
+use crate::parser::cpp_parser::ParserError;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -29,6 +30,14 @@ impl fmt::Display for LexerError {
 impl Error for LexerError {
     fn description(&self) -> &str {
         &self.details
+    }
+}
+
+impl From<LexerError> for ParserError {
+    fn from(lexer_error: LexerError) -> Self {
+        ParserError {
+            details: lexer_error.details,
+        }
     }
 }
 
@@ -91,13 +100,13 @@ impl<'a> Lexer<'a> {
 
         Ok(string_literal)
     }
-
-    pub fn next_token(&mut self) -> Result<Option<Token>, LexerError> {
+    
+    pub fn next_token(&mut self) -> Result<Option<Token>, ParserError> {
         let next_char = match self.input.next() {
             Some(c) => c,
             None => return Ok(None),
         };
-
+    
         let token = match next_char {
             c if c.is_whitespace() => {
                 if c == '\n' {
@@ -117,12 +126,12 @@ impl<'a> Lexer<'a> {
             c if c.is_digit(10) => {
                 let number = self.read_number()?;
                 if number.contains('.') {
-                    Token::Float(number.parse().map_err(|_| LexerError {
+                    Token::Float(number.parse().map_err(|_| ParserError {
                         details: String::from("Invalid float"),
                     })?)
                 } else {
-                    Token::Integer(number.parse().map_err(|_| LexerError {
-                                                details: String::from("Invalid integer"),
+                    Token::Integer(number.parse().map_err(|_| ParserError {
+                        details: String::from("Invalid integer"),
                     })?)
                 }
             }
@@ -132,9 +141,10 @@ impl<'a> Lexer<'a> {
             }
             c => Token::Symbol(c),
         };
-
+    
         Ok(Some(token))
     }
+    
 }
 
 fn is_keyword(s: &str) -> bool {

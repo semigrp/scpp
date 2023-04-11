@@ -24,7 +24,7 @@ struct Parser<'a> {
 }
 
 #[derive(Debug)]
-struct ParserError {
+pub struct ParserError {
     details: String,
 }
 
