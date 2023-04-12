@@ -3,18 +3,18 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug, PartialEq)]
-enum Expression {
+pub enum Expression {
     Identifier(String),
     Integer(i64),
 }
 
 #[derive(Debug, PartialEq)]
-enum Statement {
+pub enum Statement {
     Return(Expression),
 }
 
 #[derive(Debug, PartialEq)]
-enum Declaration {
+pub enum Declaration {
     Function(String, Vec<String>, Box<Statement>),
     Variable(String, Expression),
 }
@@ -84,18 +84,18 @@ impl<'a> Parser<'a> {
             match token {
                 Token::Keyword(keyword) => match keyword.as_str() {
                     "int" => {
-                        if let Token::Identifier(identifier) = self.lexer.next_token()? {
-                            if let Token::Symbol('(') = self.lexer.next_token()? {
+                        if let Some(Token::Identifier(identifier)) = self.lexer.next_token()? {
+                            if let Some(Token::Symbol('(')) = self.lexer.next_token()? {
                                 let mut params = Vec::new();
-                                while let Token::Identifier(param) = self.lexer.next_token()? {
+                                while let Some(Token::Identifier(param)) = self.lexer.next_token()? {
                                     params.push(param);
-                                    if let Token::Symbol(',') = self.lexer.next_token()? {
+                                    if let Some(Token::Symbol(',')) = self.lexer.next_token()? {
                                         continue;
                                     } else {
                                         break;
                                     }
                                 }
-                                if let Token::Symbol(')') = self.lexer.next_token()? {
+                                if let Some(Token::Symbol(')')) = self.lexer.next_token()? {
                                     let stmt = self.parse_statement()?;
                                     Ok(Declaration::Function(identifier, params, Box::new(stmt)))
                                 } else {

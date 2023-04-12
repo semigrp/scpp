@@ -1,5 +1,5 @@
 use crate::parser::cpp_parser::Declaration;
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, fmt};
 
 pub enum MemoryErrorType {
     MemoryLeak,
@@ -8,10 +8,17 @@ pub enum MemoryErrorType {
     NullPointerDereference,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct MemoryError {
-    error_type: MemoryErrorType,
-    details: String,
+    message: String,
 }
+
+impl fmt::Display for MemoryError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 
 pub struct MemoryAnalyzer<'a> {
     declarations: &'a [Declaration],
@@ -100,7 +107,7 @@ impl<'a> MemoryAnalyzer<'a> {
             self.uninitialized_memory.remove(id);
         }
     }
-    
+
     fn analyze_expression(&mut self, expr: &Expression) -> Result<(), MemoryError> {
         match expr {
             Expression::Identifier(id) => {

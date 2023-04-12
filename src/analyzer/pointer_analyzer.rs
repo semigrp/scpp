@@ -1,5 +1,5 @@
 use crate::parser::cpp_parser::{Declaration, Expression, Statement};
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 enum PointerOperation {
     Allocation(Expression),
@@ -7,13 +7,38 @@ enum PointerOperation {
     Dereference(Expression),
 }
 
-enum PointerError {
+#[derive(Debug, PartialEq)]
+pub enum PointerError {
     DoubleFree(String),
     InvalidFree(String),
     NullDereference(String),
 }
 
-struct PointerAnalyzer<'a> {
+impl Display for PointerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            PointerError::DoubleFree(id) => write!(f, "Double free of pointer '{}'", id),
+            PointerError::InvalidFree(id) => write!(f, "Invalid free of pointer '{}'", id),
+            PointerError::NullDereference(id) => write!(f, "Null dereference of pointer '{}'", id),
+        }
+    }
+}
+
+impl PointerError {
+    fn new_double_free(id: &str) -> Self {
+        PointerError::DoubleFree(id.to_string())
+    }
+
+    fn new_invalid_free(id: &str) -> Self {
+        PointerError::InvalidFree(id.to_string())
+    }
+
+    fn new_null_dereference(id: &str) -> Self {
+        PointerError::NullDereference(id.to_string())
+    }
+}
+
+pub struct PointerAnalyzer<'a> {
     declarations: &'a Vec<Declaration>,
     pointer_states: HashMap<String, PointerState>,
 }

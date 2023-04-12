@@ -1,10 +1,6 @@
-mod array_error;
-mod memory_error;
-mod pointer_error;
-
-pub use array_error::ArrayError;
-pub use memory_error::MemoryError;
-pub use pointer_error::PointerError;
+use crate::analyzer::array_analyzer::ArrayError;
+use crate::analyzer::memory_analyzer::MemoryError;
+use crate::analyzer::pointer_analyzer::PointerError;
 
 pub enum Error {
     Array(ArrayError),
