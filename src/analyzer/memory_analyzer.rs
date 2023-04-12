@@ -1,6 +1,7 @@
-use crate::parser::cpp_parser::Declaration;
+use crate::parser::cpp_parser::{Declaration, Expression, Statement};
 use std::{collections::{HashMap, HashSet}, fmt};
 
+#[derive(Debug)]
 pub enum MemoryErrorType {
     MemoryLeak,
     DoubleFree,
@@ -8,17 +9,17 @@ pub enum MemoryErrorType {
     NullPointerDereference,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct MemoryError {
-    message: String,
+    error_type: MemoryErrorType,
+    details: String,
 }
 
 impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "{:?}: {}", self.error_type, self.details)
     }
 }
-
 
 pub struct MemoryAnalyzer<'a> {
     declarations: &'a [Declaration],
@@ -27,6 +28,7 @@ pub struct MemoryAnalyzer<'a> {
     uninitialized_memory: HashSet<String>,
     null_pointer_dereference: HashSet<String>,
 }
+
 
 impl<'a> MemoryAnalyzer<'a> {
     pub fn new(declarations: &'a [Declaration]) -> Self {
@@ -67,12 +69,22 @@ impl<'a> MemoryAnalyzer<'a> {
         }
     }
 
-    fn handle_memory_allocation(&mut self, id: &str, expr: &Expression) {
-        if let Expression::FunctionCall(ref func_name, ref args) = expr {
-            if func_name == "malloc" || func_name == "calloc" || func_name == "realloc" {
-                self.allocated_memory.insert(id.to_string(), expr.clone());
-                self.uninitialized_memory.insert(id.to_string());
-            }
+    fn report_error(&mut self, error: MemoryError) -> Result<(), MemoryError> {
+        // ここでエラーを報告する方法を実装します。例えば、標準出力にエラーを表示することができます。
+        // エラーを表示し、Errを返す
+        eprintln!("{}", error);
+        Err(error)
+    }
+
+    fn handle_memory_allocation(&mut self, id: &str) {
+        if self.allocated_memory.contains_key(id) && !self.freed_memory.contains(id) {
+            let error = MemoryError {
+                error_type: MemoryErrorType::MemoryLeak,
+                details: format!("Memory leak detected for variable: {}", id),
+            };
+            self.report_error(error);
+        } else {
+            self.allocated_memory.insert(id.to_string(), Expression::Identifier(id.to_string()));
         }
     }
 
@@ -88,23 +100,17 @@ impl<'a> MemoryAnalyzer<'a> {
         }
     }
 
-    fn handle_memory_assignment(&mut self, id: &str, expr: &Expression) {
-        if self.is_memory_allocated(expr) {
-            self.allocated_memory.insert(id.to_string(), expr.clone());
-        } else {
-            self.allocated_memory.remove(id);
-        }
-
-        if self.is_memory_freed(expr) {
-            self.freed_memory.insert(id.to_string());
-        } else {
-            self.freed_memory.remove(id);
-        }
-
-        if self.is_memory_uninitialized(expr) {
-            self.uninitialized_memory.insert(id.to_string());
-        } else {
-            self.uninitialized_memory.remove(id);
+    fn handle_memory_assignment(&mut self, id: &Expression, expr: &Expression) {
+        if let Expression::Identifier(id) = id {
+            if self.is_memory_allocated(expr) {
+                self.handle_memory_allocation(id);
+            } else if self.is_memory_freed(expr) {
+                self.handle_memory_free(id);
+            } else if self.is_memory_uninitialized(expr) {
+                self.uninitialized_memory.insert(id.to_string());
+            } else if self.is_null_pointer_dereference(expr) {
+                self.null_pointer_dereference.insert(id.to_string());
+            }
         }
     }
 
@@ -116,7 +122,7 @@ impl<'a> MemoryAnalyzer<'a> {
                         error_type: MemoryErrorType::NullPointerDereference,
                         details: format!("Null pointer dereference detected for variable: {}", id),
                     };
-                    self.report_error(error);
+                    return self.report_error(error);
                 }
             }
             Expression::Assignment(id, assign_expr) => {
@@ -149,13 +155,19 @@ impl<'a> MemoryAnalyzer<'a> {
     fn analyze_statement(&mut self, stmt: &Statement) -> Result<(), MemoryError> {
         match stmt {
             Statement::Declaration(id, expr) => {
-                self.handle_memory_allocation(id, expr);
-                self.analyze_expression(expr)?;
+                if let expr @ Expression::FunctionCall(..) = expr {
+                    self.handle_memory_allocation(id);
+                    self.analyze_expression(expr)?;
+                } else {
+                    self.uninitialized_memory.insert(id.to_string());
+                }
             }
             Statement::Expression(expr) => {
                 self.analyze_expression(expr)?;
             }
-            _ => {}
+            Statement::If(_, _, _) => todo!(),
+            Statement::While(_, _) => todo!(),
+            Statement::Return(_) => todo!(),
         }
 
         Ok(())

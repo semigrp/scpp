@@ -19,9 +19,10 @@ impl fmt::Display for ArrayError {
     }
 }
 
+
 impl Error for ArrayError {
-    fn description(&self) -> &str {
-        &self.message
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
     }
 }
 
@@ -34,20 +35,16 @@ impl<'a> ArrayAnalyzer<'a> {
     }
 
     fn is_out_of_bounds_access(&self, expr: &Expression) -> bool {
-        match expr {
-            Expression::ArrayAccess(id, index_expr) => {
-                if let Some(size) = self.array_sizes.get(id) {
-                    match index_expr {
-                        Expression::Integer(index) => *index < 0 || *index as usize >= *size,
-                        _ => false,
-                    }
-                } else {
-                    false
+        if let Expression::ArrayAccess(id, index_expr) = expr {
+            if let Some(size) = self.array_sizes.get(id) {
+                if let Expression::Integer(index) = **index_expr {
+                    return index < 0 || index as usize >= *size;
                 }
             }
-            _ => false,
         }
+        false
     }
+    
 
     fn handle_array_declaration(&mut self, id: &str, size: usize) {
         self.array_sizes.insert(id.to_string(), size);
@@ -66,8 +63,10 @@ impl<'a> ArrayAnalyzer<'a> {
     fn analyze_expression(&mut self, expr: &Expression) -> Result<(), ArrayError> {
         match expr {
             Expression::ArrayAccess(id, index) => self.handle_array_access(id, index),
-            Expression::ArrayDeclaration(id, size) => {
-                self.handle_array_declaration(id, *size);
+            Expression::ArrayDeclaration(id, index) => {
+                if let Expression::Integer(size) = **index {
+                    self.handle_array_declaration(id, size as usize);
+                }
                 Ok(())
             }
             _ => Ok(()),

@@ -1,46 +1,50 @@
+use std::{collections::HashMap, rc::Rc, cell::RefCell};
 use crate::parser::cpp_parser::{Declaration, Expression, Statement};
-use std::{collections::HashMap, fmt::Display};
 
-enum PointerOperation {
-    Allocation(Expression),
-    Deallocation(Expression),
-    Dereference(Expression),
+pub struct Function {
+    pub name: String,
+    pub params: Vec<Param>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum PointerError {
-    DoubleFree(String),
-    InvalidFree(String),
-    NullDereference(String),
+pub struct Param {
+    pub is_pointer: bool,
 }
 
-impl Display for PointerError {
+pub enum PointerErrorKind {
+    IncorrectNumberOfArguments,
+    NonPointerArgumentForPointerParameter,
+    NullDereference,
+}
+
+pub struct PointerError {
+    pub kind: PointerErrorKind,
+    pub details: String,
+}
+
+impl std::fmt::Display for PointerError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            PointerError::DoubleFree(id) => write!(f, "Double free of pointer '{}'", id),
-            PointerError::InvalidFree(id) => write!(f, "Invalid free of pointer '{}'", id),
-            PointerError::NullDereference(id) => write!(f, "Null dereference of pointer '{}'", id),
-        }
+        write!(f, "{}", self.details)
     }
 }
+
+impl std::fmt::Debug for PointerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.details)
+    }
+}
+
+impl std::error::Error for PointerError {}
 
 impl PointerError {
-    fn new_double_free(id: &str) -> Self {
-        PointerError::DoubleFree(id.to_string())
-    }
-
-    fn new_invalid_free(id: &str) -> Self {
-        PointerError::InvalidFree(id.to_string())
-    }
-
-    fn new_null_dereference(id: &str) -> Self {
-        PointerError::NullDereference(id.to_string())
+    pub fn new(kind: PointerErrorKind, details: String) -> Self {
+        PointerError { kind, details }
     }
 }
 
-pub struct PointerAnalyzer<'a> {
-    declarations: &'a Vec<Declaration>,
-    pointer_states: HashMap<String, PointerState>,
+pub struct PointerAnalyzer {
+    declarations: Vec<Declaration>,
+    pointer_states: Rc<RefCell<HashMap<String, PointerState>>>,
+    functions: HashMap<String, Function>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -49,114 +53,137 @@ enum PointerState {
     Deallocated,
 }
 
-impl<'a> PointerAnalyzer<'a> {
-    pub fn new(declarations: &'a Vec<Declaration>) -> Self {
+impl PointerAnalyzer {
+    pub fn new(declarations: Vec<Declaration>) -> Self {
         PointerAnalyzer {
             declarations,
-            pointer_states: HashMap::new(),
+            pointer_states: Rc::new(RefCell::new(HashMap::new())),
+            functions: HashMap::new(),
         }
     }
 
-    fn analyze_variable_declaration(&mut self, stmt: &Statement) -> Result<(), PointerError> {
-        match stmt {
-            Statement::Return(expr) => self.analyze_expression(expr),
+    fn analyze_variable_declaration(&mut self, decl: &Declaration) -> Result<(), PointerError> {
+        if let Declaration::Variable(name, expr) = decl {
+            if self.is_pointer_expression(expr) {
+                self.pointer_states.borrow_mut().insert(name.clone(), PointerState::Allocated);
+            }
         }
+        Ok(())
     }
 
     fn analyze_function_call(&mut self, expr: &Expression) -> Result<(), PointerError> {
         if let Expression::FunctionCall(name, args) = expr {
+            self.check_function_call_arguments(name, args)?;
             for arg in args {
                 self.analyze_expression(arg)?;
             }
-            if let Some(func) = self.functions.get(name) {
-                // 関数の引数と呼び出し側の引数を比較し、ポインタに関するエラーがあるか確認
-                if func.params.len() != args.len() {
-                    return Err(PointerError {
-                        details: format!(
-                            "Function '{}' called with incorrect number of arguments",
+        }
+        Ok(())
+    }
+
+    fn analyze_function_call_args(&mut self, args: &Vec<Expression>) -> Result<(), PointerError> {
+        for arg in args {
+            self.analyze_expression(arg)?;
+        }
+        Ok(())
+    }
+
+    fn is_pointer_expression(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Variable(ref id) => self.pointer_states.borrow().contains_key(id),
+            Expression::Dereference(_) => true,
+            _ => false,
+        }
+    }
+
+    fn check_function_call_arguments(
+        &self,
+        name: &str,
+        args: &Vec<Expression>,
+    ) -> Result<(), PointerError> {
+        if let Some(func) = self.functions.get(name) {
+            if func.params.len() != args.len() {
+                return Err(PointerError::new(
+                    PointerErrorKind::IncorrectNumberOfArguments,
+                    format!(
+                        "Function '{}' called with incorrect number of arguments",
+                        name
+                    ),
+                ));
+            }
+            for (arg, param) in args.iter().zip(func.params.iter()) {
+                if param.is_pointer && !self.is_pointer_expression(arg) {
+                    return Err(PointerError::new(
+                        PointerErrorKind::NonPointerArgumentForPointerParameter,
+                        format!(
+                            "Function '{}' called with non-pointer argument for a pointer parameter",
                             name
                         ),
-                    });
-                }
-                for (arg, param) in args.iter().zip(func.params.iter()) {
-                    if param.is_pointer && !self.is_pointer_expression(arg) {
-                        return Err(PointerError {
-                            details: format!(
-                                "Function '{}' called with non-pointer argument for a pointer parameter",
-                                name
-                            ),
-                        });
-                    }
+                    ));
                 }
             }
         }
         Ok(())
     }
 
-        fn analyze_operator_overload(&mut self, expr: &Expression) -> Result<(), PointerError> {
-        if let Expression::BinaryOperation(lhs, op, rhs) = expr {
-            self.analyze_expression(lhs)?;
-            self.analyze_expression(rhs)?;
-
-            if op.requires_pointer() {
-                if !self.is_pointer_expression(lhs) || !self.is_pointer_expression(rhs) {
-                    return Err(PointerError {
-                        details: format!("Operator '{}' requires pointer operands", op),
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
-
-
-    fn analyze_pointer_operation(&mut self, operation: &PointerOperation) -> Result<(), PointerError> {
-        match operation {
-            PointerOperation::Allocation(expr) => {
-                if let Expression::Identifier(ref id) = expr {
-                    self.pointer_states.insert(id.clone(), PointerState::Allocated);
-                }
-                Ok(())
-            }
-            PointerOperation::Deallocation(expr) => {
-                if let Expression::Identifier(ref id) = expr {
-                    match self.pointer_states.get(id) {
-                        Some(PointerState::Allocated) => {
-                            self.pointer_states.insert(id.clone(), PointerState::Deallocated);
-                            Ok(())
-                        }
-                        Some(PointerState::Deallocated) => Err(PointerError::DoubleFree(id.clone())),
-                        None => Err(PointerError::InvalidFree(id.clone())),
-                    }
-                } else {
-                    Ok(())
-                }
-            }
-            PointerOperation::Dereference(expr) => {
-                if let Expression::Identifier(ref id) = expr {
-                    match self.pointer_states.get(id) {
-                        Some(PointerState::Allocated) => Ok(()),
-                        Some(PointerState::Deallocated) | None => {
-                            Err(PointerError::NullDereference(id.clone()))
-                        }
-                    }
-                } else {
-                    Ok(())
-                }
-            }
-        }
-    }
 
     fn analyze_expression(&mut self, expr: &Expression) -> Result<(), PointerError> {
         match expr {
-            Expression::Identifier(_) => self.analyze_operator_overload(expr),
-            Expression::Integer(_) => Ok(()),
+            Expression::FunctionCall(name, args) => {
+                self.check_function_call_arguments(name, args)?;
+                for arg in args {
+                    self.analyze_expression(arg)?;
+                }
+                Ok(())
+            }
+            Expression::Dereference(expr) => {
+                let is_pointer = self.is_pointer_expression(&**expr);
+                if let Expression::Variable(id) = &**expr {
+                    let pointer_states = self.pointer_states.borrow();
+                    if let Some(state) = pointer_states.get(id) {
+                        if *state == PointerState::Deallocated && is_pointer {
+                            return Err(PointerError::new(
+                                PointerErrorKind::NullDereference,
+                                format!("Null dereference of variable '{}'", id),
+                            ));
+                        }
+                    }
+                }
+                self.analyze_expression(&**expr)
+            }
+            Expression::BinaryOperation(_, left, right) => {
+                self.analyze_expression(&**left)?;
+                self.analyze_expression(&**right)
+            }
+            Expression::Assignment(left, right) => {
+                let left_id = if let Expression::Variable(id) = &**left {
+                    Some(id.clone())
+                } else {
+                    None
+                };
+                self.analyze_expression(&**left)?;
+                self.analyze_expression(&**right)?;
+
+                if let Some(id) = left_id {
+                    let mut pointer_states = self.pointer_states.borrow_mut();
+                    if let Some(state) = pointer_states.get_mut(&id) {
+                        if self.is_pointer_expression(&**right) {
+                            *state = PointerState::Allocated;
+                        } else {
+                            *state = PointerState::Deallocated;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 
     fn analyze_statement(&mut self, stmt: &Statement) -> Result<(), PointerError> {
         match stmt {
             Statement::Return(expr) => self.analyze_expression(expr),
+            _ => Ok(()),
         }
     }
 
@@ -168,15 +195,32 @@ impl<'a> PointerAnalyzer<'a> {
     }
 
     pub fn analyze(&mut self) -> Result<(), PointerError> {
-        for declaration in self.declarations {
-            self.analyze_declaration(declaration)?;
+        for decl in &self.declarations {
+            if let Declaration::Function(name, params, _) = decl {
+                self.functions.insert(
+                    name.clone(),
+                    Function {
+                        //params is bool
+                        name: name.clone(),
+                        params: params.clone(),
+                    },
+                );
+            }
         }
+
+        for decl in &self.declarations {
+            self.analyze_variable_declaration(decl)?;
+        }
+
+        for decl in &self.declarations {
+            self.analyze_declaration(decl)?;
+        }
+
         Ok(())
     }
-}
 
-pub fn analyze_pointer_usage(declarations: &Vec<Declaration>) -> Result<(), PointerError> {
+pub fn analyze_pointer_usage(declarations: Vec<Declaration>) -> Result<(), PointerError> {
     let mut analyzer = PointerAnalyzer::new(declarations);
     analyzer.analyze()
 }
-
+}

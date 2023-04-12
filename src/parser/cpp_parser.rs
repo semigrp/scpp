@@ -1,15 +1,54 @@
 use crate::parser::cpp_lexer::{Lexer, Token};
+use std::borrow::Borrow;
 use std::error::Error;
 use std::fmt;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Identifier(String),
     Integer(i64),
+    FunctionCall(String, Vec<Expression>),
+    Variable(String),
+    Dereference(Box<Expression>),
+    BinaryOperation(String, Box<Expression>, Box<Expression>),
+    Assignment(Box<Expression>, Box<Expression>),
+    ArrayAccess(String, Box<Expression>),
+    ArrayDeclaration(String, Box<Expression>),
+}
+
+impl Borrow<String> for Expression {
+    fn borrow(&self) -> &String {
+        match self {
+            Expression::Identifier(s) => s,
+            Expression::FunctionCall(s, _) => s,
+            Expression::Variable(s) => s,
+            _ => panic!("Not a string expression"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum BinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+impl BinaryOperator {
+    pub fn requires_pointer(&self) -> bool {
+        match self {
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
+    Expression(Expression),
+    Declaration(String, Expression),
+    If(Expression, Box<Statement>, Box<Statement>),
+    While(Expression, Box<Statement>),
     Return(Expression),
 }
 
@@ -19,7 +58,7 @@ pub enum Declaration {
     Variable(String, Expression),
 }
 
-struct Parser<'a> {
+pub struct Parser<'a> {
     lexer: Lexer<'a>,
 }
 
@@ -35,10 +74,11 @@ impl fmt::Display for ParserError {
 }
 
 impl Error for ParserError {
-    fn description(&self) -> &str {
-        &self.details
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
     }
 }
+
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Self {
@@ -113,7 +153,7 @@ impl<'a> Parser<'a> {
                             })
                         }
                     }
-                   
+                    
                     _ => Err(ParserError {
                         details: String::from("Unexpected keyword in declaration"),
                     }),
@@ -145,3 +185,10 @@ impl<'a> Parser<'a> {
         }
     }
 }
+
+pub fn parse_cpp_code(source_code: &str) -> Result<Vec<Declaration>, ParserError> {
+    let lexer = Lexer::new(source_code);
+    let mut parser = Parser::new(lexer);
+    parser.parse()
+}
+

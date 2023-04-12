@@ -100,13 +100,13 @@ impl<'a> Lexer<'a> {
 
         Ok(string_literal)
     }
-    
+
     pub fn next_token(&mut self) -> Result<Option<Token>, ParserError> {
         let next_char = match self.input.next() {
             Some(c) => c,
             None => return Ok(None),
         };
-    
+
         let token = match next_char {
             c if c.is_whitespace() => {
                 if c == '\n' {
@@ -123,43 +123,93 @@ impl<'a> Lexer<'a> {
                     Token::Identifier(identifier)
                 }
             }
-            c if c.is_digit(10) => {
-                let number = self.read_number()?;
-                if number.contains('.') {
-                    Token::Float(number.parse().map_err(|_| ParserError {
-                        details: String::from("Invalid float"),
-                    })?)
-                } else {
-                    Token::Integer(number.parse().map_err(|_| ParserError {
-                        details: String::from("Invalid integer"),
-                    })?)
+                c if c.is_digit(10) => {
+                    let number = self.read_number()?;
+                    if number.contains('.') {
+                        Token::Float(number.parse().map_err(|_| ParserError {
+                            details: String::from("Invalid float"),
+                        })?)
+                    } else {
+                        Token::Integer(number.parse().map_err(|_| ParserError {
+                            details: String::from("Invalid integer"),
+                        })?)
+                    }
                 }
-            }
-            '"' => {
-                let string_literal = self.read_string_literal()?;
-                Token::StringLiteral(string_literal)
-            }
-            c => Token::Symbol(c),
-        };
+                '"' => {
+                    let string_literal = self.read_string_literal()?;
+                    Token::StringLiteral(string_literal)
+                }
+                '/' => {
+                    if let Some(&next_char) = self.input.peek() {
+                        if next_char == '/' || next_char == '*' {
+                            self.read_comment()?;
+                            return self.next_token(); // Skip the comment and get the next token
+                        } else {
+                            Token::Symbol(next_char)
+                        }
+                    } else {
+                        Token::Symbol('/')
+                    }
+                }
+                c => Token::Symbol(c),
+            };
     
-        Ok(Some(token))
+            Ok(Some(token))
+        }
+    
+        fn read_comment(&mut self) -> Result<(), LexerError> {
+            let comment_start = self.input.next().unwrap(); // Skip the first '/'
+    
+            if let Some(comment_type) = self.input.next() {
+                match comment_type {
+                    '/' => {
+                        while let Some(c) = self.input.next() {
+                            if c == '\n' {
+                                break;
+                            }
+                        }
+                    }
+                    '*' => {
+                        let mut last_char = '\0';
+                        while let Some(c) = self.input.next() {
+                            if last_char == '*' && c == '/' {
+                                break;
+                            }
+                            last_char = c;
+                        }
+                    }
+                    _ => return Err(LexerError {
+                        details: String::from("Invalid comment start sequence"),
+                    }),
+                }
+            } else {
+                return Err(LexerError {
+                    details: String::from("Unexpected end of input"),
+                });
+            }
+    
+            Ok(())
+        }
     }
     
-}
+    fn is_keyword(s: &str) -> bool {
+        matches!(
+            s,
+            "if" | "else" | "for" | "while" | "do" | "int" | "float" | "double" | "char" | "bool"
+                | "void" | "true" | "false" | "const" | "static" | "class" | "struct" | "public"
+                | "private" | "protected" | "return" | "break" | "continue" | "switch" | "case"
+                | "default" | "enum" | "typedef" | "sizeof" | "unsigned" | "signed" | "short"
+                | "long" | "namespace" | "using" | "try" | "catch" | "throw" | "new" | "delete"
+                | "template" | "explicit" | "virtual" | "friend" | "inline" | "operator"
+                | "typeid" | "constexpr" | "decltype" | "alignas" | "alignof" | "char8_t"
+                | "char16_t" | "char32_t" | "concept" | "consteval" | "constinit" | "co_await"
+                | "co_return" | "co_yield" | "requires" | "noexcept" | "static_assert"
+                | "static_cast" | "reinterpret_cast" | "dynamic_cast" | "const_cast" | "nullptr"
+                | "override" | "final" | "import" | "module" | "transaction_safe"
+                | "transaction_safe_dynamic" | "auto" | "register" | "goto" | "asm" | "volatile"
+                | "restrict" | "thread_local" | "mutable"
+        )
+    }
 
-fn is_keyword(s: &str) -> bool {
-    matches!(
-        s,
-        "if" | "else" | "for" | "while" | "do" | "int" | "float" | "double" | "char" | "bool"
-            | "void" | "true" | "false" | "const" | "static" | "class" | "struct" | "public"
-            | "private" | "protected" | "return" | "break" | "continue" | "switch" | "case"
-            | "default" | "enum" | "typedef" | "sizeof" | "unsigned" | "signed" | "short"
-            | "long" | "namespace" | "using" | "try" | "catch" | "throw" | "new" | "delete"
-            | "template" | "explicit" | "virtual" | "friend" | "inline" | "operator"
-            | "typeid" | "constexpr" | "decltype" | "alignas" | "alignof" | "char8_t"
-            | "char16_t" | "char32_t" | "concept" | "consteval" | "constinit" | "co_await"
-            | "co_return" | "co_yield" | "export" | "import" | "module" | "requires"
-            | "noexcept" | "static_assert" | "thread_local" | "nullptr" | "auto" | "decltype(auto)"
-            | "final" | "override"
-    )
-}
+
+    
